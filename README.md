@@ -11,4 +11,4 @@ and Lumberjack (for log rotation)
 > sudo chmod 644 /var/log/apache2/access.log
 > ```
 > **TO DO**:
-> - Add Combined Log Format as an alternative schema, adds e.g. Referrer element
+> - Add Combined Log Format as an alternative schema, adds e.g. user-agent element

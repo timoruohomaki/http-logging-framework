@@ -11,7 +11,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"timoruohomaki/http-logging-framework/middleware/logging"
+	"timoruohomaki/http-logging-framework/middleware/logging" // update according to your project name
 )
 
 func main() {
@@ -23,12 +23,15 @@ func main() {
 	}
 	defer serverLogger.Sync()
 
-	// Create Apache CLF logger with rotation
+	// Create Apache logger with rotation
 	config := logging.DefaultApacheLogConfig()
 
 	// You can customize the config if needed
 	// config.LogPath = "/custom/path/access.log"
 	// config.MaxSize = 50
+
+	// Set the log format - use Combined instead of Common if you want Referer and User-Agent
+	config.Format = logging.CombinedLogFormat // or logging.CommonLogFormat
 
 	accessLogger, err := logging.NewApacheLogger(config)
 	if err != nil {
@@ -45,8 +48,8 @@ func main() {
 		w.Write([]byte(`{"message": "Hello, World!"}`))
 	})
 
-	// Add the Apache Common Log Format middleware
-	handler := logging.ApacheCommonLogMiddleware(accessLogger)(mux)
+	// Add the Apache Log Format middleware with the configured format
+	handler := logging.ApacheLogMiddleware(accessLogger, config.Format)(mux)
 
 	// Configure the HTTP server
 	server := &http.Server{
@@ -56,7 +59,10 @@ func main() {
 
 	// Run server in a goroutine so we can gracefully handle shutdown
 	go func() {
-		serverLogger.Info("Starting server", zap.String("address", ":8080"))
+		serverLogger.Info("Starting server",
+			zap.String("address", ":8080"),
+			zap.String("log_format", string(config.Format)))
+
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			serverLogger.Fatal("Server failed", zap.Error(err))
 		}
