@@ -35,9 +35,30 @@ func main() {
 
 	accessLogger, err := logging.NewApacheLogger(config)
 	if err != nil {
-		serverLogger.Fatal("Failed to create access logger", zap.Error(err))
+		serverLogger.Fatal("Failed to create access logger",
+			zap.Error(err),
+			zap.String("logPath", config.LogPath))
 	}
 	defer accessLogger.Sync()
+
+	// Start a goroutine to periodically secure log files
+	// This ensures rotated files also have correct permissions
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				if err := logging.SecureRotatedLogs(config.LogPath); err != nil {
+					serverLogger.Error("Failed to secure log files", zap.Error(err))
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 
 	// Define API routes
 	mux := http.NewServeMux()
@@ -75,12 +96,20 @@ func main() {
 
 	serverLogger.Info("Shutting down server...")
 
-	// Create a deadline for server shutdown
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	// Stop the log security goroutine
+	cancel()
 
-	if err := server.Shutdown(ctx); err != nil {
+	// Create a deadline for server shutdown
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+
+	if err := server.Shutdown(shutdownCtx); err != nil {
 		serverLogger.Fatal("Server forced to shutdown", zap.Error(err))
+	}
+
+	// One final check to secure log files before exiting
+	if err := logging.SecureRotatedLogs(config.LogPath); err != nil {
+		serverLogger.Error("Failed to secure log files during shutdown", zap.Error(err))
 	}
 
 	serverLogger.Info("Server exited successfully")

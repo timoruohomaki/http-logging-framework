@@ -3,6 +3,8 @@ package logging
 import (
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
 	"go.uber.org/zap"
@@ -65,8 +67,77 @@ func (rw *responseWrapper) Write(b []byte) (int, error) {
 	return size, err
 }
 
+// secureLogFile ensures the log file exists with secure permissions
+func secureLogFile(logPath string) error {
+	// Create directory if it doesn't exist
+	logDir := filepath.Dir(logPath)
+	if err := os.MkdirAll(logDir, 0750); err != nil {
+		return fmt.Errorf("failed to create log directory: %w", err)
+	}
+
+	// Check if file exists
+	fileInfo, err := os.Stat(logPath)
+	if os.IsNotExist(err) {
+		// Create the file with secure permissions (0640 = owner rw, group r, others none)
+		file, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0640)
+		if err != nil {
+			return fmt.Errorf("failed to create log file: %w", err)
+		}
+		file.Close()
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("failed to check log file: %w", err)
+	}
+
+	// If file exists, check its permissions
+	if fileInfo.Mode().Perm() != 0640 {
+		// Fix permissions if they're not correct
+		if err := os.Chmod(logPath, 0640); err != nil {
+			return fmt.Errorf("failed to set log file permissions: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// SecureRotatedLogs is a function that should be called periodically to secure rotated log files
+func SecureRotatedLogs(logPath string) error {
+	// Get the base filename without extension
+	dir, file := filepath.Split(logPath)
+	ext := filepath.Ext(file)
+	base := file[:len(file)-len(ext)]
+
+	// Find all log files matching the pattern (including rotated ones)
+	pattern := filepath.Join(dir, base+"*"+ext+"*") // Matches original and rotated logs
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		return fmt.Errorf("failed to find log files: %w", err)
+	}
+
+	// Set proper permissions on all matching files
+	for _, match := range matches {
+		fileInfo, err := os.Stat(match)
+		if err != nil {
+			return fmt.Errorf("failed to stat log file %s: %w", match, err)
+		}
+
+		if fileInfo.Mode().Perm() != 0640 {
+			if err := os.Chmod(match, 0640); err != nil {
+				return fmt.Errorf("failed to chmod log file %s: %w", match, err)
+			}
+		}
+	}
+
+	return nil
+}
+
 // NewApacheLogger creates a Zap logger configured for Apache Log Formats
 func NewApacheLogger(config ApacheLogConfig) (*zap.Logger, error) {
+	// Secure the log file before configuring lumberjack
+	if err := secureLogFile(config.LogPath); err != nil {
+		return nil, err
+	}
+
 	// Configure lumberjack for log rotation
 	logWriter := &lumberjack.Logger{
 		Filename:   config.LogPath,
