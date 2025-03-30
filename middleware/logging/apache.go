@@ -88,6 +88,9 @@ func NewApacheLogger(config ApacheLogConfig) (*zap.Logger, error) {
 }
 
 // ApacheCommonLogMiddleware creates middleware that logs requests in Apache Common Log Format
+// TODO: Note that Common Log Format doesn't include referrer and user-agent
+// They are supported in Combined Log Format that could be implemented as an alternative middleware
+
 func ApacheCommonLogMiddleware(logger *zap.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -110,7 +113,6 @@ func ApacheCommonLogMiddleware(logger *zap.Logger) func(http.Handler) http.Handl
 			timeFormatted := start.Format("[02/Jan/2006:15:04:05 -0700]")
 
 			// Create the log entry in Common Log Format
-			// TODO: Include Combined Log Format as an alternative
 			// %h %l %u %t \"%r\" %>s %b
 			logEntry := fmt.Sprintf("%s - - %s \"%s %s %s\" %d %d",
 				remoteAddr,
